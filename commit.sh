@@ -1,50 +1,56 @@
 #!/bin/bash
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 NO_COLOR='\033[0m'
 
-# Helper functions
+
 print_message() { echo -e "\n${1}${2}${NO_COLOR}\n"; }
 error_message() { print_message "${RED}" "Error: $1"; }
 success_message() { print_message "${GREEN}" "$1"; }
 
 generate_commit_message() {
-  local changes
-  changes=$(git diff --cached --shortstat 2>/dev/null)
+  local staged_changes
+  staged_changes=$(git diff --cached --name-status)
 
-  if [ -z "$changes" ]; then
+  if [ -z "$staged_changes" ]; then
     error_message "No changes detected. Please stage your changes before running this script."
     exit 1
   fi
 
-  # Extract the type of changes
-  local added=$(echo "$changes" | grep -oP '\d+ file\(s\) changed')
-  local insertions=$(echo "$changes" | grep -oP '\d+ insertion\(s\)')
-  local deletions=$(echo "$changes" | grep -oP '\d+ deletion\(s\)')
+  local commit_message="### Auto-Generated Commit Message\n\n"
+  local files_added=0
+  local files_modified=0
+  local files_deleted=0
+  local summary=""
 
-  # Create a basic commit message
-  local commit_message="Auto-generated commit message: "
+  while IFS=$'\t' read -r status file; do
+    case "$status" in
+      A) 
+        files_added=$((files_added + 1))
+        summary+="Added: $file\n"
+        ;;
+      M) 
+        files_modified=$((files_modified + 1))
+        summary+="Modified: $file\n"
+        ;;
+      D) 
+        files_deleted=$((files_deleted + 1))
+        summary+="Deleted: $file\n"
+        ;;
+    esac
+  done <<< "$staged_changes"
 
-  if [ -n "$added" ]; then
-    commit_message+="Updated files: $(echo "$changes" | grep -oP '\d+ file\(s\) changed'). "
-  fi
-  if [ -n "$insertions" ]; then
-    commit_message+="Added $insertions. "
-  fi
-  if [ -n "$deletions" ]; then
-    commit_message+="Removed $deletions. "
-  fi
+  commit_message+="**Files Added**: $files_added\n"
+  commit_message+="**Files Modified**: $files_modified\n"
+  commit_message+="**Files Deleted**: $files_deleted\n\n"
+  commit_message+="**Summary of Changes**:\n$summary"
 
-  # Provide a summary of the changes
-  commit_message+="Summary: $(echo "$changes" | grep -oP '(?<=\d+ file\(s\) changed, )[^,]+')"
-
-  echo "$commit_message"
+  echo -e "$commit_message"
 }
 
-# Check if there are any changes to commit
+# check if there are any changes to commit
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "Staging all changes..."
   git add . || {
@@ -56,7 +62,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   commit_message=$(generate_commit_message)
   
   echo "Generated Commit Message:"
-  echo "$commit_message"
+  echo -e "$commit_message"
   echo
   read -p "Do you want to use this message? (y/n): " choice
 
@@ -67,7 +73,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     }
     success_message "Commit successful!"
 
-    # Push to the current branch
+
     current_branch=$(git rev-parse --abbrev-ref HEAD)
     echo "Pushing to branch '$current_branch'..."
     git push origin "$current_branch" || {
